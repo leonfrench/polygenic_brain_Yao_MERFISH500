@@ -103,7 +103,7 @@ def test_delayed_ack_sends_only_new_scores_and_remount_recovers(monkeypatch):
     # Establish the browser before progressive score delivery.
     session['cell_plot'] = dict(client='browser', version=None, seq=-1)
     chart.cell_chart(cells, np.array([.1, np.nan, np.nan, np.nan]), **args)
-    assert sent[-1]['cell_aurocs'] == {'A': .6}
+    assert sent[-1]['cell_aurocs'] == {'A': .6} and sent[-1]['hover'] is None  # the default tooltip
     first = sent[-1]['packet']['seq']
     chart.cell_chart(cells, np.array([.1, .2, np.nan, np.nan]), **args)
     session['cell_plot'] = dict(client='browser', version='slices-1', seq=first)
@@ -117,3 +117,6 @@ def test_delayed_ack_sends_only_new_scores_and_remount_recovers(monkeypatch):
     assert sent[-1]['geometry'] is not None
     assert sent[-1]['packet']['reset']
     assert decode(sent[-1]['packet']['indices'], '<u4').tolist() == [0, 1, 2]
+    hover = dict(levels=['cell_subclass', 'region'], slice_with='region')
+    chart.cell_chart(cells, np.array([.1, .2, .3, np.nan]), **args, hover=hover)
+    assert sent[-1]['hover'] == hover

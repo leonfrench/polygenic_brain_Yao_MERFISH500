@@ -62,12 +62,17 @@ def shared_geometry(version, _cells, slices, _annotations, um_per_unit, noun):
 
 
 def cell_chart(cells, scores, *, slices, annotations, version, mode, cell_level, region_level,
-               cell_aurocs, region_aurocs, filename, highlight=None, clip=0.01, um_per_unit=0.5, noun='slices', key='cell_plot'):
+               cell_aurocs, region_aurocs, filename, highlight=None, clip=0.01, um_per_unit=0.5, noun='slices',
+               hover=None, key='cell_plot'):
     """Cells must already be in drawing order; scores align with those rows.
 
     highlight is an optional {label, seq} request; the viewer applies each new seq once,
     so legend clicks in the browser are not overridden on later reruns. Colour scales
-    span the clip and 1 - clip quantiles.
+    span the clip and 1 - clip quantiles. hover is an optional {levels, slice_with} tooltip
+    spec: those annotation levels plus the chosen cell type and region levels, each label
+    with a description shown as 'description (label)', and the slice on the slice_with
+    line. Without it the tooltip shows the slice, the two chosen levels and the slice's
+    colour range.
     """
     started = time.perf_counter()
     state_key = key + '_transport'
@@ -103,6 +108,6 @@ def cell_chart(cells, scores, *, slices, annotations, version, mode, cell_level,
         payload_bytes += len(geometry['px'])*2 + len(geometry['slice']) + sum(len(l['codes']) for l in geometry['levels'].values())
     _component(geometry=geometry, packet=packet, mode=mode, cell_level=cell_level, region_level=region_level,
                cell_aurocs=finite(cell_aurocs), region_aurocs=finite(region_aurocs),
-               highlight=highlight, clip=clip, filename=filename, key=key, default=None)
+               highlight=highlight, clip=clip, filename=filename, hover=hover, key=key, default=None)
     print(f"[timing] chart={filename} compact_update_s={time.perf_counter()-started:.3f} "
           f"payload_mib={payload_bytes/1024**2:.3f} geometry_sent={geometry is not None}", flush=True)

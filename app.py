@@ -24,6 +24,8 @@ REGION_LEVELS = ('region_division', 'region_structure', 'region_substructure')
 PARENT = {'cell_cluster': 'cell_supertype', 'cell_supertype': 'cell_subclass', 'cell_subclass': 'cell_class'}
 COLOUR_CLIP = 0.01  # colour scales span the 1st to 99th percentiles
 GENE_COLUMNS = ('symbol', 'mgi_id', 'name', 'feature_type', 'ensembl_id', 'n_cells_detected')  # in the genes-used download
+# Tooltip levels (the chosen class or division is added when selected); the section goes on the structure line.
+HOVER = dict(levels=['cell_subclass', 'cell_supertype', 'cell_cluster', 'region_structure', 'region_substructure'], slice_with='region_structure')
 # The cell columns the app uses; labels load as categories, which keeps a million cells to ~80 MB.
 LABEL_COLUMNS = ('brain_section_label', *CELL_LEVELS, *REGION_LEVELS)
 CELL_COLUMNS = ('cell_index', 'slice', 'cell_label', 'rx', 'ry', 'draw_order', *LABEL_COLUMNS)
@@ -290,7 +292,7 @@ def render_chart(cell_table, region_table):
         cell_chart(view, scores, slices=selected, annotations=annotations, version=chart_version, mode=mode,
                    cell_level=cell_level, region_level=region_level, cell_aurocs=aucs(cell_table), region_aurocs=aucs(region_table),
                    highlight=st.session_state.get('highlight_request'), clip=COLOUR_CLIP, filename=f"{manifest['dataset']}-merfish-spatial",
-                   um_per_unit=manifest['coordinates']['um_per_unit'], noun='sections')
+                   um_per_unit=manifest['coordinates']['um_per_unit'], noun='sections', hover=HOVER)
         st.caption('Each dot is one cell at its CCF-aligned (reconstructed) position; every panel uses the same frame and scale. '
                    f'Grey cells are not scored yet. Gene-set AUROC colours are relative within each section ({low} to {high} percentile, range shown above each panel), '
                    f'because AUROC ranges differ between sections; label AUROC modes share one scale clipped at the {low} and {high} percentiles. '

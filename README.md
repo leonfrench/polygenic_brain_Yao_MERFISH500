@@ -52,8 +52,9 @@ Open http://localhost:8501. `requirements.txt` is enough to run the app on the p
   percentiles, which are shown above its panel, and the legend is in arbitrary units. Hover gives the exact AUROC. The
   label AUROC modes (one pooled value per label) share one scale clipped at the 1st and 99th percentiles of the cells
   shown. The clip is `COLOUR_CLIP` in `app.py`. Colours only; the statistics are unchanged. Drag to pan, scroll to zoom,
-  double-click to reset, hover for a cell's annotations and AUROC, click a legend entry to highlight that label, and save
-  the current view as PNG.
+  double-click to reset, click a legend entry to highlight that label, and save the current view as PNG. Hover shows a
+  cell's subclass, supertype and cluster, its structure (name, then acronym in brackets) with the section, its
+  substructure and its gene-set AUROC; the class or division is added when that level is chosen in the sidebar.
 - **Tables**: cell type and region expression specificity across all sections (AUROC, p-value and the
   Benjamini–Hochberg adjusted pFDR), with CSV downloads, plus a download of
   every cell's score once scoring completes. The tables use pseudobulk profiles, not cell scores, so they appear as soon

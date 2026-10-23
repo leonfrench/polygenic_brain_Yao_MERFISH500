@@ -23,4 +23,13 @@ const px=new Uint16Array([10,50,51,400]),py=new Uint16Array([10,50,49,400]);
 const index=R.buildIndex(px,py,2,1000,1000,64);
 assert.equal(R.nearest(index,px,py,99,99,30),1);assert.equal(R.nearest(index,px,py,103,97,30),2);
 assert.equal(R.nearest(index,px,py,500,500,30),-1);assert.equal(R.nearest(index,px,py,790,810,30),3);
-console.log('Cell viewer colour, disc, clipping and nearest-cell tests passed');
+// Hover lines: names before acronyms, the slice on its chosen line, and the sidebar's coarser levels inserted by kind.
+const L=(title,kind,label,description)=>({title,kind,labels:[label],descriptions:[description],codes:new Uint8Array([0])});
+const lv={cell_class:L('Cell class','cell_type','33 Vascular',''),cell_subclass:L('Cell subclass','cell_type','333 Endo NN',''),
+ region_division:L('Brain division','region','HPF','Hippocampal formation'),region_structure:L('Brain structure','region','ENTl','Entorhinal area, lateral part'),
+ region_area:L('Brain area','region','MOB','MOB')};
+assert.deepEqual(R.hoverKeys(lv,['cell_subclass','region_structure','missing'],['cell_subclass','region_structure']),['cell_subclass','region_structure']);
+assert.deepEqual(R.hoverKeys(lv,['cell_subclass','region_structure'],['cell_class','region_division']),['cell_class','cell_subclass','region_division','region_structure']);
+assert.deepEqual(R.hoverLines(lv,['cell_subclass','region_structure','region_area'],0,'36','region_structure'),
+ ['Cell subclass: 333 Endo NN','Brain structure: Entorhinal area, lateral part (ENTl) · slice: 36','Brain area: MOB']);
+console.log('Cell viewer colour, disc, clipping, nearest-cell and hover tests passed');

@@ -37,6 +37,16 @@ function nearest(index,px,py,x,y,radius){const {bw,bh,bucket,start,items,step}=i
   for(let j=start[k];j<start[k+1];j++){const i=items[j],dx=px[i]*step-x,dy=py[i]*step-y,d=dx*dx+dy*dy;if(d<bestD||(d===bestD&&i<best)){bestD=d;best=i;}}}
  return best;}
 function precision(low,high){return Math.min(8,Math.max(3,Math.ceil(-Math.log10((high-low)/4||1e-3))+1));}
-root.CellRender={rgb,pack,gradient,limits,clippedLimits,groupLimits,disc,stamp,buildIndex,nearest,precision,STOPS};
+// Hover levels: the configured keys that exist, plus each extra key (the sidebar's levels) not already
+// listed, placed before the first listed level of the same kind, so a coarser class or division comes first.
+function hoverKeys(levels,keys,extra){let out=keys.filter(k=>levels[k]);
+ for(const k of extra){if(!levels[k]||out.includes(k))continue;const at=out.findIndex(x=>levels[x].kind===levels[k].kind);
+  out=at<0?[...out,k]:[...out.slice(0,at),k,...out.slice(at)];}
+ return out;}
+// One line per level for cell i: "Title: name (label)" when the label has a description (region acronyms),
+// otherwise "Title: label"; the sliceWith level's line ends with the cell's slice.
+function hoverLines(levels,keys,i,slice,sliceWith){return keys.map(k=>{const lvl=levels[k],c=lvl.codes[i],label=lvl.labels[c],d=lvl.descriptions[c];
+ const text=lvl.title+': '+(d&&d!==label?d+' ('+label+')':label);return k===sliceWith?text+' · slice: '+slice:text;});}
+root.CellRender={rgb,pack,gradient,limits,clippedLimits,groupLimits,disc,stamp,buildIndex,nearest,precision,hoverKeys,hoverLines,STOPS};
 if(typeof module!=='undefined')module.exports=root.CellRender;
 })(globalThis);

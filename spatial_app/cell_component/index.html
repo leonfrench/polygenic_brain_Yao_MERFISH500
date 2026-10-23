@@ -34,7 +34,7 @@ function pct(q){return ordinal(Math.round(q*100));}
 const MIN_HEIGHT=440;
 let g=null,scores=null,version=null,seq=-1,mode='Gene-set AUROC',cellLevel='cell_subclass',regionLevel='region_area',
  cellAucs={},regionAucs={},filename='cells',colors=null,front=null,low=0,high=1,highlight=null,dirty=true,frame=null,
- scale=1,panX=0,panY=0,moved=false,img=null,index=null,plotHeight=0,signature='',ranges=null,highlightSeq=null;
+ scale=1,panX=0,panY=0,moved=false,img=null,index=null,plotHeight=0,signature='',ranges=null,highlightSeq=null,hover=null;
 
 function decode(s,Type){const bin=atob(s),bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Type(bytes.buffer);}
 function levelKey(){return mode.startsWith('Cell type')?cellLevel:mode.startsWith('Region')?regionLevel:null;}
@@ -137,10 +137,13 @@ function load(geo){
  scores=new Float64Array(g.n).fill(NaN);index=R.buildIndex(g.px,g.py,g.step,g.width,g.height,Math.max(g.dot*4,g.width/600));
  highlight=null;dirty=true;fit();reset();
 }
-function hoverText(i){const lines=[g.panels[g.slice[i]].label];
- for(const key of [cellLevel,regionLevel]){const lvl=g.levels[key],c=lvl.codes[i],d=lvl.descriptions[c];lines.push(lvl.title+': '+lvl.labels[c]+(d&&d!==lvl.labels[c]?' — '+d:''));}
+// With a hover spec from the server: its levels (plus the sidebar's), names before acronyms and the slice on one
+// of them. Without one: the slice, the sidebar's two levels and the slice's colour range.
+function hoverText(i){const slice=g.panels[g.slice[i]].label;
+ const lines=hover?R.hoverLines(g.levels,R.hoverKeys(g.levels,hover.levels,[cellLevel,regionLevel]),i,slice,hover.slice_with):[slice];
+ if(!hover)for(const key of [cellLevel,regionLevel]){const lvl=g.levels[key],c=lvl.codes[i],d=lvl.descriptions[c];lines.push(lvl.title+': '+lvl.labels[c]+(d&&d!==lvl.labels[c]?' — '+d:''));}
  lines.push('Gene-set AUROC: '+(Number.isFinite(scores[i])?scores[i].toFixed(4):'Not scored'));
- const r=ranges&&ranges[g.slice[i]];if(r)lines.push('Slice colour range ('+pct(CLIP)+'–'+pct(1-CLIP)+' percentile): '+r[0].toFixed(3)+'–'+r[1].toFixed(3));
+ const r=!hover&&ranges&&ranges[g.slice[i]];if(r)lines.push('Slice colour range ('+pct(CLIP)+'–'+pct(1-CLIP)+' percentile): '+r[0].toFixed(3)+'–'+r[1].toFixed(3));
  if(aucMode()){const lvl=g.levels[levelKey()],v=levelAucs()[lvl.labels[lvl.codes[i]]];lines.push(lvl.title+' specificity AUROC: '+(Number.isFinite(v)?v.toFixed(4):'— (not profiled)'));}
  return lines.join('\n');}
 let drag=null;
@@ -170,7 +173,7 @@ window.addEventListener('message',event=>{if(event.source!==parent||event.data.t
   cellAucs=args.cell_aurocs||{};regionAucs=args.region_aurocs||{};if(levelKey()!==before)highlight=null;signature=next;dirty=true;}
  // A table row click from the server: applied once per request, after any mode change above.
  const request=args.highlight;if(request&&request.seq!==highlightSeq){highlightSeq=request.seq;highlight=request.label??null;dirty=true;}
- filename=args.filename;if(dirty)schedule();if(changed)send('streamlit:setComponentValue',{value:{client,version,seq}});
+ filename=args.filename;hover=args.hover||null;if(dirty)schedule();if(changed)send('streamlit:setComponentValue',{value:{client,version,seq}});
 });
 window.addEventListener('resize',fit);
 new ResizeObserver(()=>{if(!moved)reset();else schedule();}).observe(area);
