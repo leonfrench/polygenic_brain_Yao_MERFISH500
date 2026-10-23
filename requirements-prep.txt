@@ -1,0 +1,3 @@
+-r requirements.txt
+polars>=1.0
+h5py>=3.8

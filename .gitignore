@@ -1,0 +1,13 @@
+.conda-env/
+__pycache__/
+.DS_Store
+*.part
+*.staging/
+.pytest_cache/
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Raw inputs and downloaded references are large; keep them out of version control.
+/data/MERFISH/
+/data/reference/

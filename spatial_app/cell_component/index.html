@@ -1,0 +1,178 @@
+<!doctype html>
+<html><head><meta charset="UTF-8"><style>
+html,body{margin:0;background:white;font:12px Arial,sans-serif;color:#43536A}
+#wrap{display:flex;height:560px}#area{position:relative;flex:1;min-width:100px;overflow:hidden;background:#000}
+canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#legend{width:250px;padding:8px 8px 8px 12px;overflow:auto;flex-shrink:0;box-sizing:border-box}
+#legend strong{display:block;margin-bottom:6px;color:#203244}
+.row{display:flex;gap:6px;align-items:flex-start;padding:2px 4px;margin:1px 0;border-radius:3px;cursor:pointer;line-height:1.25}
+.row:hover{background:#F0F4F7}.row.active{background:#E1EDF1;font-weight:600}
+.swatch{flex:0 0 12px;height:12px;margin-top:1px;border-radius:2px}
+.note{color:#69788a;margin:6px 0}
+#tip{position:absolute;pointer-events:none;display:none;background:white;border:1px solid #aaa;padding:7px 8px;max-width:300px;white-space:pre-line;line-height:1.35;box-shadow:0 1px 4px #0002}
+#tools{height:36px;display:flex;align-items:center;gap:10px}
+button{background:white;border:1px solid #ccc;border-radius:4px;padding:5px 10px;color:#43536A;cursor:pointer}
+#status{font-size:11px}
+.color-scale{position:relative;margin:14px 0 18px;width:16px;height:220px;background:linear-gradient(to top,#32265C,#315B91,#23958B,#7ECF8D,#F3DD65)}
+.color-tick{position:absolute;left:16px;display:flex;align-items:center;transform:translateY(-50%);white-space:nowrap;font-variant-numeric:tabular-nums}
+.color-tick::before{content:"";display:block;width:7px;border-top:1px solid #69788a;margin-right:6px}
+</style></head><body>
+<div id="wrap"><div id="area"><canvas id="plot"></canvas><div id="tip"></div></div><div id="legend"></div></div>
+<div id="tools"><button id="reset">Reset view</button><button id="save">Save PNG</button><button id="clear" hidden>Clear highlight</button><span id="status"></span></div>
+<script src="cells.js"></script><script>
+const R=CellRender,canvas=document.getElementById('plot'),ctx=canvas.getContext('2d'),area=document.getElementById('area'),
+ wrap=document.getElementById('wrap'),tip=document.getElementById('tip'),legendEl=document.getElementById('legend'),clearButton=document.getElementById('clear');
+const send=(type,extra={})=>parent.postMessage({isStreamlitMessage:true,type,...extra},'*');
+const client=String(Date.now())+Math.random();
+// Unscored and non-highlighted cells stay faint against the black background.
+const GREY=R.pack([48,53,60]),PALE=R.pack([32,35,40]),BLACK=R.pack([0,0,0]),LEGEND=250;
+// Colour scales span the CLIP and 1-CLIP quantiles; the server sets CLIP.
+let CLIP=.01;
+function ordinal(n){const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+function pct(q){return ordinal(Math.round(q*100));}
+// Tall enough for the colour-scale legend (title, four-line note and bar) without scrolling.
+const MIN_HEIGHT=440;
+let g=null,scores=null,version=null,seq=-1,mode='Gene-set AUROC',cellLevel='cell_subclass',regionLevel='region_area',
+ cellAucs={},regionAucs={},filename='cells',colors=null,front=null,low=0,high=1,highlight=null,dirty=true,frame=null,
+ scale=1,panX=0,panY=0,moved=false,img=null,index=null,plotHeight=0,signature='',ranges=null,highlightSeq=null;
+
+function decode(s,Type){const bin=atob(s),bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Type(bytes.buffer);}
+function levelKey(){return mode.startsWith('Cell type')?cellLevel:mode.startsWith('Region')?regionLevel:null;}
+function aucMode(){return mode==='Cell type AUROC'||mode==='Region AUROC';}
+function levelAucs(){return mode.startsWith('Cell type')?cellAucs:regionAucs;}
+function schedule(){if(!frame)frame=requestAnimationFrame(()=>{frame=null;draw();});}
+// While panning or zooming, shift and scale the last full frame, then redraw every cell
+// once interaction pauses. A full redraw of ~750k cells takes 70-170 ms.
+let shot=null,quick=null,settle=null;
+function preview(){if(!shot||dirty){schedule();return;}if(!quick)quick=requestAnimationFrame(()=>{quick=null;
+ const dpr=window.devicePixelRatio||1,r=scale/shot.scale;ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.imageSmoothingEnabled=false;ctx.drawImage(shot.canvas,(panX-shot.panX*r)*dpr,(panY-shot.panY*r)*dpr,shot.canvas.width*r,shot.canvas.height*r);});
+ clearTimeout(settle);settle=setTimeout(schedule,140);}
+function lut(){const table=new Uint32Array(256);for(let i=0;i<256;i++)table[i]=R.pack(R.gradient(i/255));return table;}
+const LUT=lut();
+function shade(v){return LUT[Math.round(Math.max(0,Math.min(1,(v-low)/(high-low||1)))*255)];}
+
+function computeColors(){
+ const n=g.n,key=levelKey(),lvl=key?g.levels[key]:null;
+ if(!colors||colors.length!==n){colors=new Uint32Array(n);front=new Uint8Array(n);}
+ if(!lvl){
+  // Each slice spans its own CLIP to 1-CLIP quantiles: AUROC ranges differ between slices.
+  ranges=R.groupLimits(scores,g.slice,g.panels.length,CLIP);
+  for(let i=0;i<n;i++){const v=scores[i],r=ranges[g.slice[i]];
+   if(Number.isFinite(v)&&r){colors[i]=LUT[Math.round(Math.max(0,Math.min(1,(v-r[0])/(r[1]-r[0])))*255)];front[i]=1;}else{colors[i]=GREY;front[i]=0;}}
+  return;
+ }
+ ranges=null;
+ const hi=highlight===null?-1:lvl.labels.indexOf(highlight);
+ let palette;
+ if(aucMode()){const aucs=levelAucs(),byLabel=lvl.labels.map(l=>aucs[l]),perCell=new Float64Array(n);
+  for(let i=0;i<n;i++)perCell[i]=byLabel[lvl.codes[i]]??NaN;
+  [low,high]=R.clippedLimits(perCell,CLIP)||[0,1];  // cell-weighted, like the gene-set scale
+  palette=lvl.labels.map(l=>Number.isFinite(aucs[l])?shade(aucs[l]):GREY);}
+ else palette=lvl.colors.map(c=>R.pack(R.rgb(c)));
+ for(let i=0;i<n;i++){const c=lvl.codes[i];
+  if(hi>=0&&c!==hi){colors[i]=PALE;front[i]=0;}else{colors[i]=palette[c];front[i]=palette[c]===GREY?0:1;}}
+}
+
+function scaleBar(ticks,text){
+ const bar=document.createElement('div');bar.className='color-scale';bar.style.height=Math.max(120,Math.min(260,plotHeight-170))+'px';
+ ticks.forEach((label,i)=>{if(label===null)return;const tick=document.createElement('span');tick.className='color-tick';tick.style.top=((1-i/(ticks.length-1))*100)+'%';tick.textContent=label;bar.append(tick);});
+ const note=document.createElement('div');note.className='note';note.textContent=text;legendEl.append(note);
+ legendEl.append(bar);
+}
+function valueTicks(){const digits=R.precision(low,high);return [0,1,2,3,4].map(i=>(i===0?'≤ ':i===4?'≥ ':'')+(low+i/4*(high-low)).toFixed(digits));}
+function legend(){
+ legendEl.replaceChildren();clearButton.hidden=highlight===null;
+ const key=levelKey(),lvl=key?g.levels[key]:null,title=document.createElement('strong');
+ title.textContent=!lvl?'Gene-set AUROC (relative)':aucMode()?lvl.title+' specificity AUROC':lvl.title+' (specificity AUROC)';legendEl.append(title);
+ if(!lvl){if(R.limits(scores))scaleBar(['≤ '+pct(CLIP)+' percentile',null,'midpoint',null,'≥ '+pct(1-CLIP)+' percentile'],
+  'Arbitrary units: each slice is scaled between its own '+pct(CLIP)+' and '+pct(1-CLIP)+' percentiles, shown above each panel. Hover for the exact AUROC.');else{const note=document.createElement('div');note.className='note';note.textContent='Not scored yet';legendEl.append(note);}return;}
+ const aucs=levelAucs(),hasAucs=lvl.labels.some(l=>Number.isFinite(aucs[l]));
+ if(aucMode()){if(hasAucs)scaleBar(valueTicks(),'Clipped at the '+pct(CLIP)+' and '+pct(1-CLIP)+' percentiles of the cells shown.');else{const note=document.createElement('div');note.className='note';note.textContent='Enter a valid gene set to see specificity AUROCs.';legendEl.append(note);}}
+ let order=lvl.labels.map((_,i)=>i);
+ if(aucMode()&&hasAucs)order.sort((a,b)=>(aucs[lvl.labels[b]]??-1)-(aucs[lvl.labels[a]]??-1));
+ const note=document.createElement('div');note.className='note';note.textContent='Click an entry to highlight it.';legendEl.append(note);
+ for(const i of order){const label=lvl.labels[i],row=document.createElement('div'),sw=document.createElement('span');
+  row.className='row'+(label===highlight?' active':'');sw.className='swatch';
+  sw.style.background=aucMode()?(Number.isFinite(aucs[label])?'#'+[0,8,16].map(s=>((shade(aucs[label])>>s)&255).toString(16).padStart(2,'0')).join(''):'#D4DCE4'):lvl.colors[i];
+  const value=Number.isFinite(aucs[label])?aucs[label].toFixed(2):'—';
+  const text=document.createElement('span');text.textContent=label+' ('+value+')';
+  row.title=(lvl.descriptions[i]?lvl.descriptions[i]+'\n':'')+lvl.counts[i].toLocaleString()+' cells shown';
+  row.onclick=()=>{highlight=highlight===label?null:label;dirty=true;schedule();};
+  row.append(sw,text);legendEl.append(row);}
+}
+
+function draw(){
+ if(!g)return;const started=performance.now(),dpr=window.devicePixelRatio||1,w=area.clientWidth,h=area.clientHeight;if(!w||!h)return;
+ if(dirty){computeColors();legend();dirty=false;}
+ const W=Math.round(w*dpr),H=Math.round(h*dpr);if(!img||img.width!==W||img.height!==H)img=new ImageData(W,H);
+ const buf=new Uint32Array(img.data.buffer);buf.fill(BLACK);
+ const k=g.step*scale*dpr,ox=panX*dpr,oy=panY*dpr,size=Math.max(Math.round(dpr),Math.round(g.dot*scale*dpr)),spans=R.disc(size),half=size/2;
+ // Unscored or non-highlighted cells first, so coloured cells stay on top. Within a pass the
+ // order is the server's random drawing order, so overlaps favour no slice or annotation.
+ for(let pass=0;pass<2;pass++)for(let i=0;i<g.n;i++){if(front[i]!==pass)continue;
+  const x=Math.round(g.px[i]*k+ox-half),y=Math.round(g.py[i]*k+oy-half);if(x>=W||y>=H||x+size<=0||y+size<=0)continue;
+  if(size===1)buf[y*W+x]=colors[i];else R.stamp(buf,W,H,x,y,spans,colors[i]);}
+ if(canvas.width!==W)canvas.width=W;if(canvas.height!==H)canvas.height=H;
+ ctx.putImageData(img,0,0);ctx.setTransform(dpr,0,0,dpr,0,0);ctx.textBaseline='top';
+ for(const [slot,p] of g.panels.entries()){const x=p.x*scale+panX+6,y=p.y*scale+panY+4;if(x>w||y>h||x+p.w*scale<0||y+p.h*scale<0)continue;
+  ctx.font='600 13px Arial,sans-serif';ctx.fillStyle='#E8ECF1';ctx.fillText(p.label,x,y);let used=ctx.measureText(p.label).width+7;
+  // In gene-set mode the slice's colour range comes first, then the cell count if it fits.
+  const r=ranges&&ranges[slot],extras=[r?r[0].toFixed(3)+'–'+r[1].toFixed(3):null,p.n.toLocaleString()+' cells'];
+  ctx.font='11px Arial,sans-serif';
+  for(const [j,text] of extras.entries()){if(!text)continue;const tw=ctx.measureText(text).width;if(used+tw+8>p.w*scale)break;
+   ctx.fillStyle=j===0?'#F3DD65':'#9AA5B1';ctx.fillText(text,x+used,y+1.5);used+=tw+8;}}
+ ctx.setTransform(1,0,0,1,0,0);
+ if(!shot||shot.canvas.width!==W||shot.canvas.height!==H){const c=document.createElement('canvas');c.width=W;c.height=H;shot={canvas:c};}
+ shot.canvas.getContext('2d').drawImage(canvas,0,0);shot.scale=scale;shot.panX=panX;shot.panY=panY;
+ document.getElementById('status').textContent=g.n.toLocaleString()+' cells in '+g.panels.length+' '+(g.noun||'slices')+' · dot ≈ '+(g.dot*(g.um_per_unit??.5)).toFixed(0)+' µm (median cell spacing)';
+ console.debug('[timing] browser_draw_ms='+(performance.now()-started).toFixed(1)+' dot_px='+size);
+}
+function reset(){if(!g)return;const w=area.clientWidth,h=area.clientHeight;scale=Math.min(w/g.width,h/g.height)*.98;panX=(w-g.width*scale)/2;panY=(h-g.height*scale)/2;moved=false;tip.style.display='none';schedule();}
+function fit(){if(!g)return;const w=Math.max(200,(document.documentElement.clientWidth||window.innerWidth)-LEGEND);
+ const h=Math.round(Math.max(MIN_HEIGHT,Math.min(900,w*g.height/g.width)));if(h!==plotHeight){plotHeight=h;wrap.style.height=h+'px';send('streamlit:setFrameHeight',{height:h+40});}}
+function load(geo){
+ g={...geo};g.px=decode(geo.px,Uint16Array);g.py=decode(geo.py,Uint16Array);g.slice=decode(geo.slice,Uint8Array);
+ for(const lvl of Object.values(g.levels)){lvl.codes=decode(lvl.codes,lvl.dtype==='<u1'?Uint8Array:Uint16Array);lvl.counts=new Uint32Array(lvl.labels.length);for(const c of lvl.codes)lvl.counts[c]++;}
+ scores=new Float64Array(g.n).fill(NaN);index=R.buildIndex(g.px,g.py,g.step,g.width,g.height,Math.max(g.dot*4,g.width/600));
+ highlight=null;dirty=true;fit();reset();
+}
+function hoverText(i){const lines=[g.panels[g.slice[i]].label];
+ for(const key of [cellLevel,regionLevel]){const lvl=g.levels[key],c=lvl.codes[i],d=lvl.descriptions[c];lines.push(lvl.title+': '+lvl.labels[c]+(d&&d!==lvl.labels[c]?' — '+d:''));}
+ lines.push('Gene-set AUROC: '+(Number.isFinite(scores[i])?scores[i].toFixed(4):'Not scored'));
+ const r=ranges&&ranges[g.slice[i]];if(r)lines.push('Slice colour range ('+pct(CLIP)+'–'+pct(1-CLIP)+' percentile): '+r[0].toFixed(3)+'–'+r[1].toFixed(3));
+ if(aucMode()){const lvl=g.levels[levelKey()],v=levelAucs()[lvl.labels[lvl.codes[i]]];lines.push(lvl.title+' specificity AUROC: '+(Number.isFinite(v)?v.toFixed(4):'— (not profiled)'));}
+ return lines.join('\n');}
+let drag=null;
+canvas.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY,panX,panY];canvas.setPointerCapture(e.pointerId);tip.style.display='none';});
+canvas.addEventListener('pointerup',()=>drag=null);canvas.addEventListener('pointercancel',()=>drag=null);
+canvas.addEventListener('pointermove',e=>{if(!g)return;const r=canvas.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
+ if(drag){panX=drag[2]+e.clientX-drag[0];panY=drag[3]+e.clientY-drag[1];moved=true;preview();return;}
+ const i=R.nearest(index,g.px,g.py,(sx-panX)/scale,(sy-panY)/scale,Math.max(g.dot*.75,6/scale));
+ if(i<0){tip.style.display='none';return;}
+ tip.textContent=hoverText(i);tip.style.display='block';
+ tip.style.left=Math.max(0,Math.min(sx+14,area.clientWidth-tip.offsetWidth-4))+'px';tip.style.top=Math.max(0,Math.min(sy+14,area.clientHeight-tip.offsetHeight-4))+'px';});
+canvas.addEventListener('pointerleave',()=>tip.style.display='none');
+canvas.addEventListener('wheel',e=>{e.preventDefault();if(!g)return;const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top,
+ fitScale=Math.min(area.clientWidth/g.width,area.clientHeight/g.height),next=Math.max(fitScale*.5,Math.min(200/g.dot,scale*Math.exp(-e.deltaY*.002))),ratio=next/scale;
+ panX=x+(panX-x)*ratio;panY=y+(panY-y)*ratio;scale=next;moved=true;tip.style.display='none';preview();},{passive:false});
+canvas.addEventListener('dblclick',reset);document.getElementById('reset').onclick=reset;
+clearButton.onclick=()=>{highlight=null;dirty=true;schedule();};
+document.getElementById('save').onclick=()=>{const a=document.createElement('a');a.download=filename+'.png';a.href=canvas.toDataURL('image/png');a.click();};
+window.addEventListener('message',event=>{if(event.source!==parent||event.data.type!=='streamlit:render')return;const args=event.data.args,p=args.packet;if(!p)return;
+ if(args.geometry&&version!==p.version){load(args.geometry);version=p.version;seq=-1;}
+ if(!g||version!==p.version){send('streamlit:setComponentValue',{value:{client,version:null,seq:-1}});return;}
+ let changed=false;
+ if(seq!==p.seq){if(p.reset)scores.fill(NaN);const ids=decode(p.indices,Uint32Array),values=decode(p.values,Float64Array);
+  for(let j=0;j<ids.length;j++)scores[ids[j]]=values[j];seq=p.seq;dirty=true;changed=true;}
+ const next=JSON.stringify([args.mode,args.cell_level,args.region_level,args.cell_aurocs,args.region_aurocs,args.clip]);
+ if(next!==signature){if(Number.isFinite(args.clip))CLIP=args.clip;const before=levelKey();mode=args.mode;cellLevel=args.cell_level;regionLevel=args.region_level;
+  cellAucs=args.cell_aurocs||{};regionAucs=args.region_aurocs||{};if(levelKey()!==before)highlight=null;signature=next;dirty=true;}
+ // A table row click from the server: applied once per request, after any mode change above.
+ const request=args.highlight;if(request&&request.seq!==highlightSeq){highlightSeq=request.seq;highlight=request.label??null;dirty=true;}
+ filename=args.filename;if(dirty)schedule();if(changed)send('streamlit:setComponentValue',{value:{client,version,seq}});
+});
+window.addEventListener('resize',fit);
+new ResizeObserver(()=>{if(!moved)reset();else schedule();}).observe(area);
+send('streamlit:componentReady',{apiVersion:1});send('streamlit:setFrameHeight',{height:MIN_HEIGHT+40});send('streamlit:setComponentValue',{value:{client,version:null,seq:-1}});
+</script></body></html>
