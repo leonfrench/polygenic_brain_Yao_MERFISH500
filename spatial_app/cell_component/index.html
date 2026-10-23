@@ -137,12 +137,12 @@ function load(geo){
  scores=new Float64Array(g.n).fill(NaN);index=R.buildIndex(g.px,g.py,g.step,g.width,g.height,Math.max(g.dot*4,g.width/600));
  highlight=null;dirty=true;fit();reset();
 }
-// With a hover spec from the server: its levels (plus the sidebar's), names before acronyms and the slice on one
-// of them. Without one: the slice, the sidebar's two levels and the slice's colour range.
-function hoverText(i){const slice=g.panels[g.slice[i]].label;
- const lines=hover?R.hoverLines(g.levels,R.hoverKeys(g.levels,hover.levels,[cellLevel,regionLevel]),i,slice,hover.slice_with):[slice];
- if(!hover)for(const key of [cellLevel,regionLevel]){const lvl=g.levels[key],c=lvl.codes[i],d=lvl.descriptions[c];lines.push(lvl.title+': '+lvl.labels[c]+(d&&d!==lvl.labels[c]?' — '+d:''));}
- lines.push('Gene-set AUROC: '+(Number.isFinite(scores[i])?scores[i].toFixed(4):'Not scored'));
+// With a hover spec from the server: the gene-set AUROC first, then its levels (plus the sidebar's), names before
+// acronyms and the slice on one of them. Without one: the slice, the sidebar's two levels, the AUROC and the slice's colour range.
+function hoverText(i){const slice=g.panels[g.slice[i]].label,auroc='Gene-set AUROC: '+(Number.isFinite(scores[i])?scores[i].toFixed(4):'Not scored');
+ const lines=hover?[auroc,...R.hoverLines(g.levels,R.hoverKeys(g.levels,hover.levels,[cellLevel,regionLevel]),i,slice,hover.slice_with)]:[slice];
+ if(!hover){for(const key of [cellLevel,regionLevel]){const lvl=g.levels[key],c=lvl.codes[i],d=lvl.descriptions[c];lines.push(lvl.title+': '+lvl.labels[c]+(d&&d!==lvl.labels[c]?' — '+d:''));}
+  lines.push(auroc);}
  const r=!hover&&ranges&&ranges[g.slice[i]];if(r)lines.push('Slice colour range ('+pct(CLIP)+'–'+pct(1-CLIP)+' percentile): '+r[0].toFixed(3)+'–'+r[1].toFixed(3));
  if(aucMode()){const lvl=g.levels[levelKey()],v=levelAucs()[lvl.labels[lvl.codes[i]]];lines.push(lvl.title+' specificity AUROC: '+(Number.isFinite(v)?v.toFixed(4):'— (not profiled)'));}
  return lines.join('\n');}
