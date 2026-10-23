@@ -40,9 +40,9 @@ Open http://localhost:8501. `requirements.txt` is enough to run the app on the p
 - **Genes**: mouse symbols by default (matched case-insensitively). Human or rhesus macaque symbols are converted to
   mouse orthologs with the bundled HomoloGene snapshot (`data/homologene_to_human.csv.gz`); one-to-many orthologs are all
   kept and unmapped symbols are reported. An optional background is the complete universe, including the targets;
-  ranks are recomputed inside it. **Genes used** lists the matched targets, and its download gives every gene of the
-  scoring universe with its role (target or background). The default gene set is the medial habenula markers on the
-  panel (`Tac2 Chat Slc5a7 Chrnb3 Pou4f1`).
+  ranks are recomputed inside it. **Gene matching** lists the targets used and any symbols left out, and its download
+  gives every gene of the scoring universe with its role (target or background). The default gene set is the medial
+  habenula markers on the panel (`Tac2 Chat Slc5a7 Chrnb3 Pou4f1`).
 - **Colour cells by**: gene-set AUROC, cell type, region, cell type AUROC or region AUROC (the last two colour each cell
   by its label's specificity AUROC from the tables). The cell type level (class / subclass / supertype / cluster) and
   region level (division / structure / substructure) set both the colours and the tables.
@@ -54,7 +54,8 @@ Open http://localhost:8501. `requirements.txt` is enough to run the app on the p
   shown. The clip is `COLOUR_CLIP` in `app.py`. Colours only; the statistics are unchanged. Drag to pan, scroll to zoom,
   double-click to reset, hover for a cell's annotations and AUROC, click a legend entry to highlight that label, and save
   the current view as PNG.
-- **Tables**: cell type and region expression specificity across all sections, with CSV downloads, plus a download of
+- **Tables**: cell type and region expression specificity across all sections (AUROC, p-value and the
+  Benjamini–Hochberg adjusted pFDR), with CSV downloads, plus a download of
   every cell's score once scoring completes. The tables use pseudobulk profiles, not cell scores, so they appear as soon
   as the gene set is valid. Tick a row's checkbox to colour the plot by that table's specificity AUROC (cell type or
   region) and highlight the label; untick it to return to the previous colour mode. A table with a parent level shows
@@ -165,7 +166,8 @@ average expression (genes that do not vary get z = 0). Within each label, genes 
 ties), and the AUROC compares the target genes with the rest of the universe: above 0.5 means the gene set is more
 specific to that label than other genes. With a custom background, genes are ranked within that universe. Labels with
 fewer than 20 cells are not profiled. Two-sided Mann–Whitney p-values over genes (normal approximation with tie and
-continuity correction, matching `scipy.stats.mannwhitneyu`) are corrected with Benjamini–Hochberg within each table.
+continuity correction, matching `scipy.stats.mannwhitneyu`) are adjusted with Benjamini–Hochberg within each table
+(pFDR).
 Genes are not independent (co-expression), so the p-values are exploratory. This follows the
 [SEA-AD polygenic tester](https://github.com/leonfrench/SEA_AD_multi_polygenic_app), which ranks genes by pseudobulk
 z-scores in the same way; its p-values omit the tie correction.

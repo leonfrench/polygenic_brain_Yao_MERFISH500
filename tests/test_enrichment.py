@@ -36,7 +36,7 @@ def test_auroc_and_p_values_match_mannwhitneyu_per_profile_with_ties():
         np.testing.assert_allclose(table.loc[label, 'AUROC'], test.statistic/(len(target)*len(others)), rtol=1e-6)
         np.testing.assert_allclose(table.loc[label, 'p-value'], test.pvalue, rtol=1e-6)
         ps.append(test.pvalue)
-    np.testing.assert_allclose(table.loc[labels, 'Corrected p-value (BH)'], false_discovery_control(ps), rtol=1e-6)
+    np.testing.assert_allclose(table.loc[labels, 'pFDR'], false_discovery_control(ps), rtol=1e-6)
     assert table.index[0] == 'P1'  # the profile where the target block is specific
 
 

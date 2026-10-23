@@ -63,7 +63,7 @@ def specificity_table(ranks, ties, target, labels, n_cells, label_column, count_
     # Apply the reporting floor AFTER BH, so it does not alter the correction.
     floor = np.nextafter(np.float64(0), np.float64(1))
     table['p-value'] = np.where(p == 0, floor, p)
-    table['Corrected p-value (BH)'] = np.where(corrected == 0, floor, corrected)
+    table['pFDR'] = np.where(corrected == 0, floor, corrected)  # Benjamini-Hochberg adjusted
     return table.sort_values(['AUROC', label_column], ascending=[False, True]).reset_index(drop=True)
 
 

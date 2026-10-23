@@ -40,7 +40,8 @@ st.markdown('''<style>
 [data-testid="stMetricLabel"] {color:#69788a; font-size:.8rem;}
 [data-testid="stSidebar"] .block-container {padding-top:1.5rem;}
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {gap:0.45rem;}
-[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {margin-bottom:0;}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {margin-bottom:0; line-height:1.3;}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {margin-bottom:0;}  /* its -1rem offsets a paragraph margin removed above */
 .st-key-cell_chart_panel {gap:0.25rem;}
 </style>''', unsafe_allow_html=True)
 
@@ -187,8 +188,7 @@ with st.sidebar:
 mode = st.session_state.colour_mode
 st.markdown('<div style="color:#000;font-size:24px;font-weight:400;line-height:1.3;">'
             'Polygenic enrichment tool for the MERFISH whole mouse brain atlas by Yao et al.</div>', unsafe_allow_html=True)
-st.markdown(f"**{manifest['dataset']} · {len(selected)} coronal section{'s' if len(selected) > 1 else ''}, anterior to posterior:** "
-            f"{', '.join(selected)}")
+st.markdown(f"**{manifest['dataset']} · {len(selected)} coronal section{'s' if len(selected) > 1 else ''}, anterior to posterior**")
 view, view_index = display_cells(str(DATA), data_version, tuple(selected))
 plan = [b for group in zip_longest(*(slice_info[s]['batches'] for s in selected)) for b in group if b]
 chart_version = f"{version}:{'|'.join(selected)}"
@@ -260,15 +260,17 @@ def render_progress():
         if job['error']:
             st.error(f"Scoring stopped: {job['error']}")
         q = job['query']
-        if q.unknown_target or q.unknown_background or q.outside_background:
-            with st.expander(f'Gene matching · {len(q.unknown_target)+len(q.outside_background)} target symbols excluded', expanded=False):
-                if q.unknown_target: st.warning('Targets not in dataset: '+', '.join(q.unknown_target))
-                if q.unknown_background: st.warning('Background genes not in dataset: '+', '.join(q.unknown_background))
-                if q.outside_background: st.warning('Targets outside background: '+', '.join(q.outside_background))
         used = genes_used(genes, q, GENE_COLUMNS)
         targets = used.symbol[used.role.eq('target')]
-        with st.expander(f'Genes used · {len(targets):,} targets in a {len(used):,}-gene universe', expanded=False):
-            st.markdown('**Targets:** '+', '.join(targets))
+        excluded = len(q.unknown_target) + len(q.outside_background)
+        title = f"Gene matching · {len(targets):,} target{'s' if len(targets) != 1 else ''} used in a {len(used):,}-gene universe"
+        if excluded:
+            title += f" · {excluded} target symbol{'s' if excluded != 1 else ''} excluded"
+        with st.expander(title, expanded=False):
+            st.markdown('**Targets used:** '+', '.join(targets))
+            if q.unknown_target: st.warning('Targets not in dataset: '+', '.join(q.unknown_target))
+            if q.unknown_background: st.warning('Background genes not in dataset: '+', '.join(q.unknown_background))
+            if q.outside_background: st.warning('Targets outside background: '+', '.join(q.outside_background))
             st.caption('The download lists every gene of the scoring universe (all panel genes, or your background) with its role.')
             st.download_button('Download genes used', lambda used=used: used.to_csv(index=False).encode(),
                                file_name=f"{manifest['dataset']}-genes-used.csv", mime='text/csv', key='download_genes')
@@ -320,9 +322,9 @@ def render_tables():
     cell_table, region_table = enrichment_tables(job['query']) if job and not stale else (None, None)
     number = dict(AUROC=st.column_config.NumberColumn(format='%.4f', help='Probability that a target gene ranks above a non-target gene in this pseudobulk, by specificity z-score, with half credit for ties.'),
                   **{'p-value': st.column_config.NumberColumn(help='Two-sided Mann–Whitney U test over genes, with tie and continuity correction.'),
-                     'Corrected p-value (BH)': st.column_config.NumberColumn(help='Benjamini–Hochberg correction across all labels at this level.')})
+                     'pFDR': st.column_config.NumberColumn(help='Benjamini–Hochberg adjusted p-value (false discovery rate) across all labels at this level.')})
     # Standard notation from 1e-4 up, scientific below; the values (and sorting, downloads) stay numeric.
-    p_format = {'AUROC': '{:.4f}', 'p-value': format_p_value, 'Corrected p-value (BH)': format_p_value}
+    p_format = {'AUROC': '{:.4f}', 'p-value': format_p_value, 'pFDR': format_p_value}
     left, right = st.columns(2, gap='medium')
     for column, kind, level, table in [(left, 'Cell type', cell_level, cell_table), (right, 'Region', region_level, region_table)]:
         with column:
@@ -349,7 +351,7 @@ def render_tables():
                'log₂(CPM + 1). Each gene is z-scored across the labels of the chosen level, removing its average expression, and genes are '
                'ranked within each label. AUROC > 0.5 = the target genes are more specific to that label than other genes; '
                '< 0.5 = less specific; 0.5 = no preference. With a custom background, genes are ranked within that universe. '
-               'Two-sided Mann–Whitney p-values over genes with Benjamini–Hochberg correction per table; values that underflow are '
+               'Two-sided Mann–Whitney p-values over genes, adjusted per table with Benjamini–Hochberg (pFDR); values that underflow are '
                'reported at the smallest positive float (≈4.94 × 10⁻³²⁴). Co-expressed genes are not independent, so p-values are exploratory.')
     if complete:
         columns = view[['cell_index', 'cell_label', 'brain_section_label', 'rx', 'ry', *CELL_LEVELS, *REGION_LEVELS]]
